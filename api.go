@@ -43,8 +43,8 @@ func (s *APIServer) Run() {
 	http.ListenAndServe(s.listenAddr, router)
 }
 
-func NewAPIServer(listenAddr string) *APIServer {
-	return &APIServer{listenAddr: listenAddr}
+func NewAPIServer(listenAddr string, storage Storage) *APIServer {
+	return &APIServer{listenAddr: listenAddr, store: storage}
 }
 
 func (s *APIServer) handleAccount(w http.ResponseWriter, r *http.Request) error {
