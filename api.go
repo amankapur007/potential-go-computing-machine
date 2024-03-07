@@ -40,7 +40,7 @@ type APIServer struct {
 func (s *APIServer) Run() {
 	router := mux.NewRouter()
 	router.HandleFunc("/account", makeHTTPHandleFunc(s.handleAccount))
-	router.HandleFunc("/account/{id}", WitJWTAuth(makeHTTPHandleFunc(s.handleAccountByID)))
+	router.HandleFunc("/account/{id}", WitJWTAuth(makeHTTPHandleFunc(s.handleAccountByID), s.store))
 	router.HandleFunc("/transfer", makeHTTPHandleFunc(s.handleTransfer))
 
 	log.Println("JSON API Server running on port ", s.listenAddr)
@@ -127,17 +127,48 @@ func (s *APIServer) handleTransfer(w http.ResponseWriter, r *http.Request) error
 	return WriteJSON(w, http.StatusOK, transferReq)
 }
 
-func WitJWTAuth(handleFunc http.HandlerFunc) http.HandlerFunc {
+func WitJWTAuth(handleFunc http.HandlerFunc, store Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("Calling JWT Auth")
 		tokenString := r.Header.Get("x-jwt-token")
-		_, err := validateJWT(tokenString)
+		token, err := validateJWT(tokenString)
 		if err != nil {
-			WriteJSON(w, http.StatusForbidden, ApiError{Error: "Invalid token"})
+			WriteJSON(w, http.StatusForbidden, ApiError{Error: "permission denied"})
+			return
+		}
+
+		if !token.Valid {
+			WriteJSON(w, http.StatusForbidden, ApiError{Error: "permission denied"})
+			return
+		}
+		userID, err := getID(r)
+		if err != nil {
+			WriteJSON(w, http.StatusForbidden, ApiError{Error: "permission denied"})
+			return
+		}
+		account, err := store.GetAccountByID(userID)
+		if err != nil {
+			WriteJSON(w, http.StatusForbidden, ApiError{Error: "permission denied"})
+			return
+		}
+
+		claims := token.Claims.(jwt.MapClaims)
+		if account.Number != int64(claims["accountNumber"].(float64)) {
+			WriteJSON(w, http.StatusForbidden, ApiError{Error: "permission denied"})
 			return
 		}
 		handleFunc(w, r)
 	}
+}
+
+func getID(r *http.Request) (int, error) {
+	idStr := mux.Vars(r)["id"]
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return -1, err
+	}
+	return id, nil
+
 }
 
 func validateJWT(tokenString string) (*jwt.Token, error) {
